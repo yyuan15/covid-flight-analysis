@@ -1,0 +1,201 @@
+---
+title: "COVID Impact on U.S. Flight Behavior"
+author: "Bernice Yuan"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Introduction
+
+The COVID-19 pandemic, which began impacting the United States in early 2020, drastically altered patterns of human mobility. One of the most affected industries was aviation, with widespread travel restrictions, stay-at-home orders, and shifting consumer behavior causing sharp declines in both domestic and international air travel.
+
+This project investigates the impact of COVID-19 on flight behavior across the five busiest U.S. airports: Hartsfield–Jackson Atlanta International Airport (ATL), Los Angeles International Airport (LAX), Denver International Airport (DEN), Dallas/Fort Worth International Airport (DFW), and Chicago O'Hare International Airport (ORD). Together, these airports serve as major hubs for both business and leisure travel and provide a representative lens through which to understand broader national mobility trends.
+
+Using detailed flight records from the U.S. Bureau of Transportation Statistics and daily COVID-19 case data from The COVID Tracking Project, this analysis will explore the following research questions:
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(knitr)
+library(dplyr)
+```
+
+```{r load-data, message=FALSE, warning=FALSE}
+# Create folders for output if not exist
+if (!dir.exists("plots")) dir.create("plots")
+flights <- read_csv("data/Top5airportsUS.csv") %>%
+    drop_na()
+covid <- read_csv("data/Top5StateCovid.csv")
+```
+
+## Research Question 1
+
+### How does the pandemic impact the total flights in these 5 top airports in the US by comparing year 2019 and 2020?
+```{r}
+flight_summary <- flights %>%
+    filter(year %in% c(2019, 2020)) %>%
+    group_by(origin, year) %>%
+    summarise(total_flights = n(), .groups = "drop") %>%
+    pivot_wider(names_from = year, values_from = total_flights, names_prefix = "year_") %>%
+    mutate(percent_change = (year_2020 - year_2019) / year_2019 * 100)
+
+print(flight_summary)
+
+p <- ggplot(flight_summary, aes(x = reorder(origin, percent_change), y = percent_change, fill = origin)) +
+    geom_col(width = 0.6) +
+    geom_text(aes(label = paste0(round(percent_change, 1), "%")),
+        vjust = -0.5, size = 4
+    ) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(
+        title = "Percent Change in Flight Volume (2019 to 2020)",
+        x = "Airport",
+        y = "Percent Change",
+        fill = "Airport"
+    ) +
+    theme_minimal()
+
+print(p)
+ggsave("plots/flight_percent_change.png", width = 8, height = 5)
+```
+
+### Summary for Research Question 1
+
+The COVID-19 pandemic caused a significant decline in flight volumes across all five of the busiest U.S. airports between 2019 and 2020. The steepest drops were observed at ORD (Chicago O'Hare) and LAX (Los Angeles), with decreases of -45.9% and -45.7% respectively. ATL (Atlanta) also experienced a substantial reduction of -38%. In contrast, DFW (Dallas/Fort Worth) and DEN (Denver) had comparatively smaller declines at -27.8% and -24.1%, suggesting these hubs maintained a relatively higher volume of flights during the pandemic. These patterns highlight how the impact of COVID-19 on air travel varied significantly across regions.
+
+## Research Question 2
+
+### How did the COVID-19 pandemic impact flight activity in relation to the number of COVID cases across states?
+
+```{r}
+states <- c("GA", "CA", "CO", "TX", "FL")
+
+covid_monthly <- covid %>%
+    mutate(date = ymd(date), state = toupper(state)) %>%
+    filter(state %in% states, year(date) == 2020, day(date) == days_in_month(date)) %>%
+    select(state, date, positive) %>%
+    arrange(state, date)
+print(covid_monthly)
+
+flights_filtered <- flights %>%
+    mutate(
+        date = make_date(year, month, day),
+        state = case_when(
+            origin == "ATL" ~ "GA",
+            origin == "LAX" ~ "CA",
+            origin == "DEN" ~ "CO",
+            origin == "DFW" ~ "TX",
+            origin == "ORD" ~ "FL"
+        )
+    ) %>%
+    filter(year == 2020, state %in% states, date >= as.Date("2020-03-04")) %>%
+    mutate(month_end = ceiling_date(date, "month") - days(1)) %>%
+    filter(month_end <= as.Date("2020-12-31"))
+
+flight_monthly <- flights_filtered %>%
+    group_by(state, month_end) %>%
+    summarise(monthly_flights = n(), .groups = "drop") %>%
+    rename(date = month_end)
+
+covid_flight_2020 <- left_join(flight_monthly, covid_monthly, by = c("state", "date"))
+print(covid_flight_2020)
+```
+
+```{r}
+covid_flight_2020_labeled <- covid_flight_2020 %>%
+    mutate(month = format(date, "%b"))
+
+ggplot(covid_flight_2020_labeled, aes(x = date)) +
+    geom_line(aes(y = monthly_flights, color = "Flights"), size = 1.2) +
+    geom_line(aes(y = positive / 100, color = "COVID Cases"), linetype = "dashed", size = 1) +
+    facet_wrap(~state, scales = "free_y") +
+    scale_color_manual(values = c("Flights" = "#4D908E", "COVID Cases" = "#F3722C")) +
+    scale_x_date(
+        breaks = as.Date(c("2020-03-31", "2020-06-30", "2020-09-30", "2020-12-31")),
+        labels = c("Mar", "Jun", "Sep", "Dec")
+    ) +
+    labs(
+        title = "Monthly Flights and COVID-19 Cases Over Time (Mar–Dec 2020)",
+        subtitle = "COVID cases rescaled (÷100) for plotting clarity",
+        x = "Month",
+        y = "Count (flights & rescaled cases)",
+        color = ""
+    ) +
+    theme_minimal()
+
+ggsave("plots/all_states_flight_vs_covid_scatter.png", width = 10, height = 8)
+```
+
+### Summary for Research Question 2
+The line plots reveal a general inverse relationship between COVID-19 case trends and air travel activity: as cases surged through 2020, most states experienced a sharp drop in flights, followed by a gradual or inconsistent recovery. However, this relationship was not perfectly synchronized across states. Notably, California (CA) and Florida (FL) saw their flight volumes stagnate below pre-pandemic levels even as COVID cases continued to rise. In contrast, Colorado (CO), represented by Denver International Airport (DEN), stood out: despite a steep drop early in the pandemic, DEN’s flight activity rebounded significantly and surpassed March 2020 levels by late summer. This unique rebound pattern suggests that Colorado’s flight behavior was not as tightly coupled with rising case numbers as in other states, hinting at differing policy responses, travel demand, or network centrality.
+
+## Research Question 3
+### How resilient were major U.S. airports in recovering flight volumes during the pandemic, and which state rebounded the strongest between March and December 2020?
+
+```{r}
+# Step 1: Get March flight volumes
+march_volume <- covid_flight_2020_labeled %>%
+    filter(month == "Mar") %>%
+    select(state, mar_volume = monthly_flights)
+
+# Step 2: For each state, find min volume (Apr–Dec) and recovery duration
+resilience_analysis <- covid_flight_2020_labeled %>%
+    filter(!(month %in% c("Mar"))) %>%
+    mutate(month_num = as.integer(format(date, "%m"))) %>%
+    left_join(march_volume, by = "state") %>%
+    group_by(state) %>%
+    mutate(
+        drop_pct = (min(monthly_flights) - mar_volume) / mar_volume * 100,
+        recovery_threshold = mar_volume * 0.8,
+        recovered = monthly_flights >= recovery_threshold
+    ) %>%
+    summarise(
+        mar_volume = first(mar_volume),
+        min_volume = min(monthly_flights),
+        drop_pct = first(drop_pct),
+        months_to_80pct = ifelse(any(recovered), min(month_num[recovered]) - 3, Inf),
+        max_flights = max(monthly_flights),
+        max_month = format(date[which.max(monthly_flights)], "%b"),
+        resilience_score = ifelse(is.finite(months_to_80pct),
+            (1 / months_to_80pct) * (100 + drop_pct),
+            0
+        )
+    )
+
+resilience_analysis <- resilience_analysis %>%
+    rename(
+        `March Volume` = mar_volume,
+        `Min Volume` = min_volume,
+        `Percentage Dropped` = drop_pct,
+        `Months to 80%` = months_to_80pct,
+        `Max Volume` = max_flights,
+        `Max Month` = max_month,
+        `Resilience Score` = resilience_score
+    )
+
+
+knitr::kable(
+    resilience_analysis,
+    digits = 2,
+    caption = "Resilience, Drop Percentage, and Peak Month by State (Mar–Dec 2020)",
+    align = "c" # Center all columns
+)
+```
+
+### Summary for Research Question 3
+To evaluate the resilience of air travel across five major U.S. states, we developed a resilience score that incorporates both the magnitude of decline and the speed of recovery in flight activity following the onset of COVID-19. The percent drop was calculated as the difference between each state's March 2020 flight volume and its lowest monthly volume between April and December 2020. Recovery was measured by the number of months it took for flight volume to return to at least 80% of March levels.
+
+The resilience score is defined as:
+
+$$
+\text{Resilience Score} = \left(\frac{1}{\text{months to 80%}}\right) \times (100 + \text{Percentage Dropped})
+$$
+
+This metric rewards states that recovered quickly and experienced shallower declines. States that never recovered to the 80% threshold received a resilience score of 0.
+
+According to this measure, Colorado (CO) and Texas (TX) emerged as the most resilient states, with scores of 12.30 and 12.27 respectively. Both states reached their lowest flight volumes in the spring and rebounded to 80% by the summer. Georgia (GA) followed with a resilience score of 6.76, recovering over five months despite a deeper initial drop. Meanwhile, California (CA) and Florida (FL) never regained 80% of their March traffic levels by the end of 2020, resulting in a resilience score of 0.
+
+These results align with the broader trends observed in flight activity over time, particularly highlighting Denver International Airport (DEN) in Colorado. DEN demonstrated a sharp recovery and peaked in August 2020, showcasing one of the strongest and earliest rebounds among the five states analyzed.
