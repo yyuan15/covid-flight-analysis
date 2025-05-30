@@ -36,7 +36,7 @@ This project explores the impact of the COVID-19 pandemic on flight volumes at t
 - Used faceted plots to highlight state-level trends.
 
 ### ➤ Quantitative Analysis
-- Constructed a **Resilience Score** = (1 / Months to Recover to 80%) × (100 + Dropped PErcentage)
+- Constructed a **Resilience Score** = (1 / Months to Recover to 80%) × (100 + Dropped Percentage)
   - **Months to Recover to 80%**: Number of months it took for flight volume to recover to 80% of pre-COVID levels.
   - **Dropped Percentage**: Percentage drop in flight volume.
 - Used this score to rank state performance in terms of recovery strength and speed.
